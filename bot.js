@@ -62,9 +62,8 @@ function sellerKeyboard() {
 const CANCEL_KB = { keyboard: [[{ text: '❌ Отменить' }]], resize_keyboard: true, one_time_keyboard: true };
 
 function projectCaption(p) {
-  const boostLine = p.boost ? '⭐ <b>market+</b> · цена снижена вдвое\n' : '';
-  const price = p.boost ? `<s>${p.price} ₽</s> <b>${p.displayPrice} ₽</b>` : `<b>${p.price} ₽</b>`;
-  return `🏷 <b>${esc(p.title)}</b>\n\n${boostLine}💰 Цена: ${price}\n👤 Продавец: ${esc(p.sellerName)}\n🔗 ${esc(p.fanpayLink)}`;
+  const mark = p.boost ? ' <b>· ⭐ market+</b>' : '';
+  return `🏷 <b>${esc(p.title)}</b>${mark}\n\n💰 Цена: <b>${p.price} ₽</b>\n👤 Продавец: ${esc(p.sellerName)}\n🔗 ${esc(p.fanpayLink)}`;
 }
 
 async function sendWelcome(ctx) {
@@ -73,7 +72,7 @@ async function sendWelcome(ctx) {
     'Привет! 👋\n\n' +
     'Мы Ftmarket и приглашаем тебя стать частью нас!\n\n' +
     'Здесь ты можешь находить интересные товары от других пользователей, а также выставлять собственные товары с FanPay.\n\n' +
-    '⭐ market+ — выгодные предложения: цена снижена вдвое, товары показываются первыми.';
+    '⭐ market+ — небольшая заметная отметка и чуть выше позиция в ленте. Цена не меняется.';
 
   const kb = new InlineKeyboard().text('🛒 Смотреть товары','m:watch').text('💰 Продавать','m:sell').row().text('👤 Мой профиль','m:profile').text('⭐ market+','m:plus').row().text('🔐 админ','m:admin');
 
@@ -214,11 +213,29 @@ async function handleFSM(ctx, state, data) {
   }
 }
 
+/* ---------- Лента: лёгкий, сбалансированный приоритет market+ ---------- */
+function balancedFeed(items) {
+  const regular = items.filter(p => !p.boost);
+  const boosted = items.filter(p => p.boost);
+  if (!boosted.length) return regular;
+
+  const out = [];
+  let bi = 0;
+  for (let i = 0; i < regular.length; i++) {
+    out.push(regular[i]);
+    // Один market+ после каждых двух обычных товаров
+    if ((i + 1) % 2 === 0 && bi < boosted.length) out.push(boosted[bi++]);
+  }
+  // Оставшиеся market+ (если обычных мало) — в конец, а не в начало
+  while (bi < boosted.length) out.push(boosted[bi++]);
+  return out;
+}
+
 /* ---------- Лента ---------- */
 async function showProduct(ctx, projectId = null) {
   const id = ctx.from.id;
   const fsState = S.getFeedState(id);
-  const all = S.getFeedProjects(id).filter(p => !fsState.reviewed.includes(p.id));
+  const all = balancedFeed(S.getFeedProjects(id)).filter(p => !fsState.reviewed.includes(p.id));
 
   let p = projectId ? S.getProject(projectId) : all[0];
   if (!p || p.ownerId === id || fsState.reviewed.includes(p.id)) p = all[0];
@@ -264,9 +281,9 @@ async function showMyProjects(ctx) {
   for (const p of items) {
     const kb = new InlineKeyboard()
       .text('✏️ Изменить', `edit:menu:${p.id}`).text('🗑 Удалить', `del:${p.id}`);
-    const mark = p.boost ? '⭐ market+ ' : '';
+    const mark = p.boost ? ' <b>· ⭐ market+</b>' : '';
     await ctx.replyWithPhoto(p.photos[0], {
-      caption: `${mark}📦 ${esc(p.title)}\n💰 ${p.price} ₽${p.boost ? ' → ' + p.displayPrice + ' ₽ в ленте' : ''}\n🔗 ${esc(p.fanpayLink)}`,
+      caption: `📦 <b>${esc(p.title)}</b>${mark}\n💰 ${p.price} ₽\n🔗 ${esc(p.fanpayLink)}`,
       parse_mode: 'HTML', reply_markup: kb
     });
   }
@@ -361,15 +378,15 @@ async function showPlus(ctx) {
   const items = S.allProjects();
   const boosted = items.filter(p => p.boost);
   let text = '⭐ <b>market+</b>\n\n';
+  text += 'Небольшая заметная отметка и чуть более высокая позиция в ленте. Цена не меняется, обычные товары продолжают попадаться покупателям.\n\n';
   if (!items.length) {
-    text += 'Товаров пока нет. Как только продавцы опубликуют товары — здесь появятся special-предложения со скидкой 50%.';
-    text = text.replace('special-', '');
+    text += 'Товаров пока нет.';
   } else if (!boosted.length) {
     text += `Всего товаров: ${items.length}.\n\nПока ни одному не присвоен market+. Статус можно включить в админ-панели (🔐 админ → 📦 Все товары).`;
   } else {
-    text += `Товаров со скидкой: <b>${boosted.length}</b> из ${items.length}.\n\n`;
+    text += `Товаров с market+: <b>${boosted.length}</b> из ${items.length}.\n\n`;
     boosted.slice(0, 10).forEach((p, i) => {
-      text += `${i + 1}. ${esc(p.title)} — <s>${p.price} ₽</s> <b>${p.displayPrice} ₽</b>\n`;
+      text += `${i + 1}. ⭐ ${esc(p.title)} — ${p.price} ₽\n`;
     });
   }
   const kb = new InlineKeyboard().text('🛒 Смотреть товары','m:watch').text('↩️ В меню','m:main');
@@ -506,8 +523,8 @@ bot.on('callback_query:data', async (ctx) => {
           const kb = new InlineKeyboard()
             .text(p.boost ? '⭐ market+ ВКЛ' : '⭐ market+', `ad:boost:${p.id}`)
             .text('🗑 Удалить', `ad:del:${p.id}`);
-          const mark = p.boost ? '⭐ <b>market+</b> ' : '';
-          await ctx.reply(`${mark}📦 <b>${esc(p.title)}</b>\n💰 ${p.price} ₽${p.boost ? ' → ' + p.displayPrice + ' ₽' : ''}\n👤 ${esc(p.sellerName)}`, { parse_mode: 'HTML', reply_markup: kb });
+          const mark = p.boost ? ' <b>· ⭐ market+</b>' : '';
+          await ctx.reply(`📦 <b>${esc(p.title)}</b>${mark}\n💰 ${p.price} ₽\n👤 ${esc(p.sellerName)}`, { parse_mode: 'HTML', reply_markup: kb });
         }
         await ctx.reply('Всего товаров: ' + items.length, { reply_markup: adminKeyboard() });
         return;
@@ -521,7 +538,7 @@ bot.on('callback_query:data', async (ctx) => {
       if (data.startsWith('ad:boost:')) {
         const pid = Number(data.split(':')[2]);
         const on = S.toggleBoost(pid);
-        await ctx.reply(on ? `⭐ market+ ВКЛЮЧЁН: цена в ленте снижена вдвое, товар показывается первым.` : `⭐ market+ выключен.`);
+        await ctx.reply(on ? '⭐ market+ ВКЛЮЧЁН: заметная отметка и лёгкий приоритет в ленте. Цена не меняется.' : '⭐ market+ выключен.');
         return;
       }
       if (data === 'ad:broadcast') {

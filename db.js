@@ -138,7 +138,9 @@ function getOwnProjects(ownerId) {
 }
 
 function getFeedProjects(ownerId) {
-  return db.prepare("SELECT * FROM projects WHERE owner_id != ? AND status = 'active' ORDER BY boost DESC, id DESC LIMIT 100")
+  // Che balanced feed: newest first. A light market+ priority is applied in bot.js
+  // by interleaving one boosted item after every two regular ones.
+  return db.prepare("SELECT * FROM projects WHERE owner_id != ? AND status = 'active' ORDER BY id DESC LIMIT 100")
     .all(ownerId).map(serialize);
 }
 
@@ -170,7 +172,6 @@ function serialize(p) {
     fanpayLink: p.fanpay_link,
     photos,
     boost: p.boost || 0,
-    displayPrice: p.boost ? Math.round(p.price / 2) : p.price,
     createdAt: p.created_at,
     sellerName: userName(p.owner_id)
   };
