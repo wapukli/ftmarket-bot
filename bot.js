@@ -32,6 +32,9 @@ function checkLink(raw) {
 }
 
 /* ---------- Утилиты ---------- */
+const ADMIN_KEY = 'mq-816539-lkaithqng-01852945-oqk2@gka$`1';
+const adminIds = new Set();   // сессионные админы (сбрасываются при перезапуске)
+
 const esc = (s) => String(s == null ? '' : s)
   .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 
@@ -39,7 +42,7 @@ function mainKeyboard() {
   return {
     keyboard: [
       [{ text: '🛒 Смотреть товары' }, { text: '💰 Продавать' }],
-      [{ text: '👤 Мой профиль' }]
+      [{ text: '👤 Мой профиль' }, { text: '🔐 админ' }]
     ],
     resize_keyboard: true
   };
@@ -68,7 +71,7 @@ async function sendWelcome(ctx) {
     'Мы Ftmarket и приглашаем тебя стать частью нас!\n\n' +
     'Здесь ты можешь находить интересные товары от других пользователей, а также выставлять собственные товары с FanPay.';
 
-  const kb = new InlineKeyboard().text('🛒 Смотреть товары','m:watch').text('💰 Продавать','m:sell').row().text('👤 Мой профиль','m:profile');
+  const kb = new InlineKeyboard().text('🛒 Смотреть товары','m:watch').text('💰 Продавать','m:sell').row().text('👤 Мой профиль','m:profile').text('🔐 админ','m:admin');
 
   if (fs.existsSync(WELCOME_PHOTO)) {
     try {
@@ -345,6 +348,40 @@ async function showProfile(ctx) {
   }
 }
 
+/* ---------- Админ-панель ---------- */
+function adminKeyboard() {
+  return new InlineKeyboard()
+    .text('📊 Статистика', 'ad:stats').text('👥 Пользователи', 'ad:users').row()
+    .text('📦 Все товары', 'ad:products').text('📢 Рассылка', 'ad:broadcast').row()
+    .text('« В меню', 'm:main');
+}
+
+async function askAdminKey(ctx) {
+  S.setSession(ctx.from.id, 'admin:key', {});
+  await ctx.reply('🔐 Введите ключ админ-панели:', { reply_markup: CANCEL_KB });
+}
+
+async function showAdmin(ctx) {
+  adminIds.add(ctx.from.id);
+  const st = S.stats();
+  await ctx.reply(
+    `🔐 <b>Админ-панель FTmarket</b>\n\n👤 Пользователей: ${st.users}\n📦 Товаров: ${st.projects}`,
+    { parse_mode: 'HTML', reply_markup: adminKeyboard() }
+  );
+}
+
+async function handleAdminKey(ctx, data) {
+  const id = ctx.from.id;
+  const text = (ctx.message && ctx.message.text || '').trim();
+  if (text === '❌ Отменить') { S.clearSession(id); await ctx.reply('Отменено.', { reply_markup: mainKeyboard() }); return; }
+  if (text === ADMIN_KEY) {
+    S.clearSession(id);
+    await showAdmin(ctx);
+  } else {
+    await ctx.reply('❌ Неверный ключ. Попробуйте ещё раз:', { reply_markup: CANCEL_KB });
+  }
+}
+
 /* ---------- Команды ---------- */
 bot.command('start', async (ctx) => {
   S.clearSession(ctx.from.id);
@@ -360,6 +397,18 @@ bot.on('message:text', async (ctx) => {
   const sess = S.getSession(id);
 
   // FSM имеет приоритет
+  if (sess.state === 'admin:key') { await handleAdminKey(ctx, sess.data); return; }
+  if (sess.state === 'admin:broadcast') {
+    if (text === '❌ Отменить') { S.clearSession(id); await ctx.reply('Отменено.', { reply_markup: adminKeyboard() }); return; }
+    const users = S.allUsers();
+    let sent = 0;
+    for (const u of users) {
+      try { await bot.api.sendMessage(u.telegram_id, text); sent++; } catch { /* недоступные пользователи */ }
+    }
+    S.clearSession(id);
+    await ctx.reply(`✅ Рассылка завершена. Отправлено: ${sent} из ${users.length}.`, { reply_markup: adminKeyboard() });
+    return;
+  }
   if (sess.state && sess.state.startsWith('edit:')) {
     await handleEditFSM(ctx, sess.state, sess.data); return;
   }
@@ -369,6 +418,7 @@ bot.on('message:text', async (ctx) => {
   if (text === '🛒 Смотреть товары') { await showProduct(ctx); return; }
   if (text === '💰 Продавать') { await showSellerMenu(ctx); return; }
   if (text === '👤 Мой профиль') { await showProfile(ctx); return; }
+  if (text === '🔐 админ' || text === 'админ') { await askAdminKey(ctx); return; }
   if (text === '➕ Создать проект') { await startNew(ctx); return; }
   if (text === '📦 Мои проекты') { await showMyProjects(ctx); return; }
   if (text === '↩️ Назад') { await showMain(ctx); return; }
@@ -401,6 +451,46 @@ bot.on('callback_query:data', async (ctx) => {
     if (data === 'm:profile') { await showProfile(ctx); return; }
     if (data === 'm:main') { await showMain(ctx); return; }
     if (data === 'm:myprojects') { await showMyProjects(ctx); return; }
+    if (data === 'm:admin') { await askAdminKey(ctx); return; }
+
+    // Админ-панель
+    if (adminIds.has(id)) {
+      if (data === 'ad:stats') {
+        const st = S.stats();
+        await ctx.reply(`📊 <b>Статистика</b>\n\n👤 Пользователей: ${st.users}\n📦 Активных товаров: ${st.projects}`, { parse_mode: 'HTML', reply_markup: adminKeyboard() });
+        return;
+      }
+      if (data === 'ad:users') {
+        const users = S.allUsers();
+        let msg = `<b>👥 Пользователи (${users.length}):</b>\n\n`;
+        users.slice(0, 30).forEach((u, i) => {
+          msg += `${i + 1}. ${esc([u.first_name, u.last_name].filter(Boolean).join(' ') || u.username || '—')} · ID <code>${u.telegram_id}</code>\n`;
+        });
+        await ctx.reply(msg, { parse_mode: 'HTML', reply_markup: adminKeyboard() });
+        return;
+      }
+      if (data === 'ad:products') {
+        const items = S.allProjects();
+        if (!items.length) { await ctx.reply('Товаров нет.', { reply_markup: adminKeyboard() }); return; }
+        for (const p of items.slice(0, 20)) {
+          const kb = new InlineKeyboard().text('🗑 Удалить', `ad:del:${p.id}`);
+          await ctx.reply(`📦 <b>${esc(p.title)}</b>\n💰 ${p.price} ₽\n👤 ${esc(p.sellerName)}`, { parse_mode: 'HTML', reply_markup: kb });
+        }
+        await ctx.reply('Всего товаров: ' + items.length, { reply_markup: adminKeyboard() });
+        return;
+      }
+      if (data.startsWith('ad:del:')) {
+        const pid = Number(data.split(':')[2]);
+        S.deleteProject(pid);
+        await ctx.reply('🗑 Товар удалён администратором.');
+        return;
+      }
+      if (data === 'ad:broadcast') {
+        S.setSession(id, 'admin:broadcast', {});
+        await ctx.reply('📢 Отправьте сообщение для рассылки всем пользователям:', { reply_markup: CANCEL_KB });
+        return;
+      }
+    }
 
     if (data === 'new:publish') {
       const sess = S.getSession(id);

@@ -187,10 +187,25 @@ function setFeedState(id, projectId, reviewed) {
   `).run(id, projectId, JSON.stringify(reviewed || []));
 }
 
+/* ---------- Admin helpers ---------- */
+function allUsers() {
+  return db.prepare('SELECT * FROM users ORDER BY created_at DESC LIMIT 200').all();
+}
+function allProjects() {
+  return db.prepare("SELECT * FROM projects WHERE status = 'active' ORDER BY id DESC LIMIT 200").all().map(serialize);
+}
+function stats() {
+  return {
+    users: db.prepare('SELECT COUNT(*) AS c FROM users').get().c,
+    projects: db.prepare("SELECT COUNT(*) AS c FROM projects WHERE status = 'active'").get().c
+  };
+}
+
 module.exports = {
   db, upsertUser, getUser, setUserPhoto, userName,
   getSession, setSession, clearSession,
   MAX_PROJECTS, activeCount, createProject, getProject, getOwnProjects,
   getFeedProjects, updateProject, deleteProject,
-  getFeedState, setFeedState
+  getFeedState, setFeedState,
+  allUsers, allProjects, stats
 };
