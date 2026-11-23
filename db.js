@@ -31,6 +31,7 @@ db.exec(`
     fanpay_link TEXT NOT NULL,
     photos TEXT NOT NULL,        -- JSON array of Telegram file_id
     status TEXT NOT NULL DEFAULT 'active',  -- active | draft
+    boost INTEGER NOT NULL DEFAULT 0,       -- market+: 0 | 1
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now')),
     FOREIGN KEY (owner_id) REFERENCES users(telegram_id)
@@ -53,6 +54,9 @@ db.exec(`
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
 `);
+
+// Миграция для старых баз
+try { db.exec('ALTER TABLE projects ADD COLUMN boost INTEGER NOT NULL DEFAULT 0'); } catch { /* уже есть */ }
 
 /* ---------- Users ---------- */
 function upsertUser(from) {
@@ -134,7 +138,7 @@ function getOwnProjects(ownerId) {
 }
 
 function getFeedProjects(ownerId) {
-  return db.prepare("SELECT * FROM projects WHERE owner_id != ? AND status = 'active' ORDER BY id DESC LIMIT 100")
+  return db.prepare("SELECT * FROM projects WHERE owner_id != ? AND status = 'active' ORDER BY boost DESC, id DESC LIMIT 100")
     .all(ownerId).map(serialize);
 }
 
@@ -165,6 +169,8 @@ function serialize(p) {
     price: p.price,
     fanpayLink: p.fanpay_link,
     photos,
+    boost: p.boost || 0,
+    displayPrice: p.boost ? Math.round(p.price / 2) : p.price,
     createdAt: p.created_at,
     sellerName: userName(p.owner_id)
   };
@@ -206,6 +212,13 @@ module.exports = {
   getSession, setSession, clearSession,
   MAX_PROJECTS, activeCount, createProject, getProject, getOwnProjects,
   getFeedProjects, updateProject, deleteProject,
+  toggleBoost(id) {
+    const row = db.prepare('SELECT boost FROM projects WHERE id = ?').get(id);
+    if (!row) return null;
+    const next = row.boost ? 0 : 1;
+    db.prepare('UPDATE projects SET boost = ?, updated_at = datetime(\'now\') WHERE id = ?').run(next, id);
+    return next;
+  },
   getFeedState, setFeedState,
   allUsers, allProjects, stats
 };

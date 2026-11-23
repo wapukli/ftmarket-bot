@@ -61,7 +61,9 @@ function sellerKeyboard() {
 const CANCEL_KB = { keyboard: [[{ text: '❌ Отменить' }]], resize_keyboard: true, one_time_keyboard: true };
 
 function projectCaption(p) {
-  return `🏷 <b>${esc(p.title)}</b>\n\n💰 Цена: <b>${p.price} ₽</b>\n👤 Продавец: ${esc(p.sellerName)}\n🔗 ${esc(p.fanpayLink)}`;
+  const boostLine = p.boost ? '⭐ <b>market+</b> · цена снижена вдвое\n' : '';
+  const price = p.boost ? `<s>${p.price} ₽</s> <b>${p.displayPrice} ₽</b>` : `<b>${p.price} ₽</b>`;
+  return `🏷 <b>${esc(p.title)}</b>\n\n${boostLine}💰 Цена: ${price}\n👤 Продавец: ${esc(p.sellerName)}\n🔗 ${esc(p.fanpayLink)}`;
 }
 
 async function sendWelcome(ctx) {
@@ -228,6 +230,9 @@ async function showProduct(ctx, projectId = null) {
   const kb = new InlineKeyboard()
     .text('🛒 Перейти на FanPay', `buy:${p.id}`).row()
     .text('⏭ SKIP', `skip:${p.id}`).text('↩️ В меню', 'm:main');
+  if (adminIds.has(id)) {
+    kb.row().text(p.boost ? '⭐ market+ ВКЛ' : '⭐ market+ ВКЛЮЧИТЬ', `ad:boost:${p.id}`);
+  }
 
   try {
     if (p.photos.length > 1) {
@@ -257,8 +262,9 @@ async function showMyProjects(ctx) {
   for (const p of items) {
     const kb = new InlineKeyboard()
       .text('✏️ Изменить', `edit:menu:${p.id}`).text('🗑 Удалить', `del:${p.id}`);
+    const mark = p.boost ? '⭐ market+ ' : '';
     await ctx.replyWithPhoto(p.photos[0], {
-      caption: `📦 ${esc(p.title)}\n💰 ${p.price} ₽\n🔗 ${esc(p.fanpayLink)}`,
+      caption: `${mark}📦 ${esc(p.title)}\n💰 ${p.price} ₽${p.boost ? ' → ' + p.displayPrice + ' ₽ в ленте' : ''}\n🔗 ${esc(p.fanpayLink)}`,
       parse_mode: 'HTML', reply_markup: kb
     });
   }
@@ -473,8 +479,11 @@ bot.on('callback_query:data', async (ctx) => {
         const items = S.allProjects();
         if (!items.length) { await ctx.reply('Товаров нет.', { reply_markup: adminKeyboard() }); return; }
         for (const p of items.slice(0, 20)) {
-          const kb = new InlineKeyboard().text('🗑 Удалить', `ad:del:${p.id}`);
-          await ctx.reply(`📦 <b>${esc(p.title)}</b>\n💰 ${p.price} ₽\n👤 ${esc(p.sellerName)}`, { parse_mode: 'HTML', reply_markup: kb });
+          const kb = new InlineKeyboard()
+            .text(p.boost ? '⭐ market+ ВКЛ' : '⭐ market+', `ad:boost:${p.id}`)
+            .text('🗑 Удалить', `ad:del:${p.id}`);
+          const mark = p.boost ? '⭐ <b>market+</b> ' : '';
+          await ctx.reply(`${mark}📦 <b>${esc(p.title)}</b>\n💰 ${p.price} ₽${p.boost ? ' → ' + p.displayPrice + ' ₽' : ''}\n👤 ${esc(p.sellerName)}`, { parse_mode: 'HTML', reply_markup: kb });
         }
         await ctx.reply('Всего товаров: ' + items.length, { reply_markup: adminKeyboard() });
         return;
@@ -483,6 +492,12 @@ bot.on('callback_query:data', async (ctx) => {
         const pid = Number(data.split(':')[2]);
         S.deleteProject(pid);
         await ctx.reply('🗑 Товар удалён администратором.');
+        return;
+      }
+      if (data.startsWith('ad:boost:')) {
+        const pid = Number(data.split(':')[2]);
+        const on = S.toggleBoost(pid);
+        await ctx.reply(on ? `⭐ market+ ВКЛЮЧЁН: цена в ленте снижена вдвое, товар показывается первым.` : `⭐ market+ выключен.`);
         return;
       }
       if (data === 'ad:broadcast') {
