@@ -42,7 +42,8 @@ function mainKeyboard() {
   return {
     keyboard: [
       [{ text: '🛒 Смотреть товары' }, { text: '💰 Продавать' }],
-      [{ text: '👤 Мой профиль' }, { text: '🔐 админ' }]
+      [{ text: '👤 Мой профиль' }, { text: '⭐ market+' }],
+      [{ text: '🔐 админ' }]
     ],
     resize_keyboard: true
   };
@@ -71,9 +72,10 @@ async function sendWelcome(ctx) {
   const text =
     'Привет! 👋\n\n' +
     'Мы Ftmarket и приглашаем тебя стать частью нас!\n\n' +
-    'Здесь ты можешь находить интересные товары от других пользователей, а также выставлять собственные товары с FanPay.';
+    'Здесь ты можешь находить интересные товары от других пользователей, а также выставлять собственные товары с FanPay.\n\n' +
+    '⭐ market+ — выгодные предложения: цена снижена вдвое, товары показываются первыми.';
 
-  const kb = new InlineKeyboard().text('🛒 Смотреть товары','m:watch').text('💰 Продавать','m:sell').row().text('👤 Мой профиль','m:profile').text('🔐 админ','m:admin');
+  const kb = new InlineKeyboard().text('🛒 Смотреть товары','m:watch').text('💰 Продавать','m:sell').row().text('👤 Мой профиль','m:profile').text('⭐ market+','m:plus').row().text('🔐 админ','m:admin');
 
   if (fs.existsSync(WELCOME_PHOTO)) {
     try {
@@ -354,6 +356,26 @@ async function showProfile(ctx) {
   }
 }
 
+/* ---------- market+ ---------- */
+async function showPlus(ctx) {
+  const items = S.allProjects();
+  const boosted = items.filter(p => p.boost);
+  let text = '⭐ <b>market+</b>\n\n';
+  if (!items.length) {
+    text += 'Товаров пока нет. Как только продавцы опубликуют товары — здесь появятся special-предложения со скидкой 50%.';
+    text = text.replace('special-', '');
+  } else if (!boosted.length) {
+    text += `Всего товаров: ${items.length}.\n\nПока ни одному не присвоен market+. Статус можно включить в админ-панели (🔐 админ → 📦 Все товары).`;
+  } else {
+    text += `Товаров со скидкой: <b>${boosted.length}</b> из ${items.length}.\n\n`;
+    boosted.slice(0, 10).forEach((p, i) => {
+      text += `${i + 1}. ${esc(p.title)} — <s>${p.price} ₽</s> <b>${p.displayPrice} ₽</b>\n`;
+    });
+  }
+  const kb = new InlineKeyboard().text('🛒 Смотреть товары','m:watch').text('↩️ В меню','m:main');
+  await ctx.reply(text, { parse_mode: 'HTML', reply_markup: kb });
+}
+
 /* ---------- Админ-панель ---------- */
 function adminKeyboard() {
   return new InlineKeyboard()
@@ -424,6 +446,7 @@ bot.on('message:text', async (ctx) => {
   if (text === '🛒 Смотреть товары') { await showProduct(ctx); return; }
   if (text === '💰 Продавать') { await showSellerMenu(ctx); return; }
   if (text === '👤 Мой профиль') { await showProfile(ctx); return; }
+  if (text === '⭐ market+' || text.toLowerCase() === 'market+') { await showPlus(ctx); return; }
   if (text === '🔐 админ' || text === 'админ') { await askAdminKey(ctx); return; }
   if (text === '➕ Создать проект') { await startNew(ctx); return; }
   if (text === '📦 Мои проекты') { await showMyProjects(ctx); return; }
@@ -458,6 +481,7 @@ bot.on('callback_query:data', async (ctx) => {
     if (data === 'm:main') { await showMain(ctx); return; }
     if (data === 'm:myprojects') { await showMyProjects(ctx); return; }
     if (data === 'm:admin') { await askAdminKey(ctx); return; }
+    if (data === 'm:plus') { await showPlus(ctx); return; }
 
     // Админ-панель
     if (adminIds.has(id)) {
