@@ -1,0 +1,17 @@
+app = 'ftmarket-bot'
+primary_region = 'ord'
+
+[build]
+  dockerfile = 'Dockerfile'
+
+[env]
+  DB_PATH = '/data/ftmarket.db'
+
+[mounts]
+  source = 'ftmarket_data'
+  destination = '/data'
+
+[[vm]]
+  memory = '512mb'
+  cpu_kind = 'shared'
+  cpus = 1
