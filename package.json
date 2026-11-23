@@ -1,0 +1,19 @@
+{
+  "name": "ftmarket-bot",
+  "version": "2.0.0",
+  "private": true,
+  "description": "FTmarket - ordinary Telegram bot (no Mini App)",
+  "main": "bot.js",
+  "scripts": {
+    "start": "node bot.js",
+    "dev": "node --watch bot.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.10.0",
+    "dotenv": "^17.2.3",
+    "grammy": "^1.38.4"
+  }
+}
