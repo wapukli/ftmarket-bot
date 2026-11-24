@@ -373,11 +373,29 @@ async function showProfile(ctx) {
   }
 }
 
+const PLUS_OFFER_URL = 'https://funpay.com/uk/lots/offerEdit?node=4386&offer=83060447';
+
 /* ---------- market+ ---------- */
 async function showPlus(ctx) {
+  const id = ctx.from.id;
+
+  // Если market+ не активирован — предлагаем ключ и ссылку на покупку
+  if (!S.isPlusActive(id)) {
+    const kb = new InlineKeyboard()
+      .text('🔑 Ввести ключ', 'plus:enter').row()
+      .url('🛒 Купить market+ на FanPay', PLUS_OFFER_URL).row()
+      .text('↩️ В меню', 'm:main');
+    await ctx.reply(
+      '⭐ <b>market+</b> — небольшая заметная отметка и чуть выше позиция в ленте.\n\n' +
+      'У вас пока нет market+. Купите его по ссылке ниже или введите уже полученный ключ:',
+      { parse_mode: 'HTML', reply_markup: kb }
+    );
+    return;
+  }
+
   const items = S.allProjects();
   const boosted = items.filter(p => p.boost);
-  let text = '⭐ <b>market+</b>\n\n';
+  let text = '⭐ <b>market+ АКТИВЕН</b> ✅\n\n';
   text += 'Небольшая заметная отметка и чуть более высокая позиция в ленте. Цена не меняется, обычные товары продолжают попадаться покупателям.\n\n';
   if (!items.length) {
     text += 'Товаров пока нет.';
@@ -391,6 +409,25 @@ async function showPlus(ctx) {
   }
   const kb = new InlineKeyboard().text('🛒 Смотреть товары','m:watch').text('↩️ В меню','m:main');
   await ctx.reply(text, { parse_mode: 'HTML', reply_markup: kb });
+}
+
+async function askPlusKey(ctx) {
+  S.setSession(ctx.from.id, 'plus:key', {});
+  await ctx.reply('🔑 Введите ключ market+:', { reply_markup: CANCEL_KB });
+}
+
+async function handlePlusKey(ctx) {
+  const id = ctx.from.id;
+  const text = (ctx.message && ctx.message.text || '').trim();
+  if (text === '❌ Отменить') { S.clearSession(id); await ctx.reply('Отменено.', { reply_markup: mainKeyboard() }); return; }
+  const r = S.activatePlus(id, text);
+  S.clearSession(id);
+  if (r.ok) {
+    await ctx.reply('✅ market+ активирован! Ваши товары получат заметную отметку и лёгкий приоритет в ленте.', { reply_markup: mainKeyboard() });
+    await showPlus(ctx);
+  } else {
+    await ctx.reply('❌ ' + r.msg + '\n\nКупить ключ можно здесь: ' + PLUS_OFFER_URL, { reply_markup: mainKeyboard() });
+  }
 }
 
 /* ---------- Админ-панель ---------- */
@@ -442,6 +479,7 @@ bot.on('message:text', async (ctx) => {
   const sess = S.getSession(id);
 
   // FSM имеет приоритет
+  if (sess.state === 'plus:key') { await handlePlusKey(ctx); return; }
   if (sess.state === 'admin:key') { await handleAdminKey(ctx, sess.data); return; }
   if (sess.state === 'admin:broadcast') {
     if (text === '❌ Отменить') { S.clearSession(id); await ctx.reply('Отменено.', { reply_markup: adminKeyboard() }); return; }
@@ -499,6 +537,7 @@ bot.on('callback_query:data', async (ctx) => {
     if (data === 'm:myprojects') { await showMyProjects(ctx); return; }
     if (data === 'm:admin') { await askAdminKey(ctx); return; }
     if (data === 'm:plus') { await showPlus(ctx); return; }
+    if (data === 'plus:enter') { await askPlusKey(ctx); return; }
 
     // Админ-панель
     if (adminIds.has(id)) {

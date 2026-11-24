@@ -53,10 +53,27 @@ db.exec(`
     reviewed TEXT NOT NULL DEFAULT '[]',
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
+
+  CREATE TABLE IF NOT EXISTS plus_keys (
+    key TEXT PRIMARY KEY,
+    used_by INTEGER,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
 `);
 
 // Миграция для старых баз
 try { db.exec('ALTER TABLE projects ADD COLUMN boost INTEGER NOT NULL DEFAULT 0'); } catch { /* уже есть */ }
+try { db.exec('ALTER TABLE users ADD COLUMN plus_active INTEGER NOT NULL DEFAULT 0'); } catch { /* уже есть */ }
+
+// Ключи market+ — читаем из plus-keys.txt (по одному на строку)
+const keysFile = path.join(__dirname, 'plus-keys.txt');
+const PLUS_KEYS = fs.existsSync(keysFile)
+  ? fs.readFileSync(keysFile, 'utf8').split(/\r?\n/).map(s => s.trim()).filter(Boolean)
+  : [];
+for (const k of PLUS_KEYS) {
+  db.prepare('INSERT OR IGNORE INTO plus_keys (key) VALUES (?)').run(k);
+}
+try { console.log(`[db] market+ keys loaded: ${PLUS_KEYS.length}`); } catch { /* noop */ }
 
 /* ---------- Users ---------- */
 function upsertUser(from) {
@@ -221,5 +238,17 @@ module.exports = {
     return next;
   },
   getFeedState, setFeedState,
+  isPlusActive(id) {
+    const u = db.prepare('SELECT plus_active FROM users WHERE telegram_id = ?').get(id);
+    return !!(u && u.plus_active);
+  },
+  activatePlus(id, key) {
+    const row = db.prepare('SELECT used_by FROM plus_keys WHERE key = ?').get(String(key).trim());
+    if (!row) return { ok: false, msg: 'Ключ не найден' };
+    if (row.used_by && row.used_by !== id) return { ok: false, msg: 'Ключ уже использован' };
+    db.prepare("UPDATE plus_keys SET used_by = ? WHERE key = ?").run(id, String(key).trim());
+    db.prepare('UPDATE users SET plus_active = 1 WHERE telegram_id = ?').run(id);
+    return { ok: true };
+  },
   allUsers, allProjects, stats
 };
