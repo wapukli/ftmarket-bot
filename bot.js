@@ -76,14 +76,12 @@ async function sendWelcome(ctx) {
 
   const kb = new InlineKeyboard().text('🛒 Смотреть товары','m:watch').text('💰 Продавать','m:sell').row().text('👤 Мой профиль','m:profile').text('⭐ market+','m:plus').row().text('🔐 админ','m:admin');
 
-  if (fs.existsSync(WELCOME_PHOTO)) {
-    try {
-      await ctx.replyWithPhoto(new (require('grammy').InputFile)(WELCOME_PHOTO), {
-        caption: text, reply_markup: kb
-      });
-      return;
-    } catch (e) { console.error('welcome photo:', e.message); }
-  }
+  // Фото отправляется по file_id (быстро, без загрузки 1.8 МБ каждый раз)
+  const WELCOME_FILE_ID = 'AgACAgIAAxkDAAMLawQ6x90_RH6shAABcfREOyrh-VfHAAL2HWsbRUQgSKiUnS6Emu6zAQADAgADeQADPQQ';
+  try {
+    await ctx.replyWithPhoto(WELCOME_FILE_ID, { caption: text, reply_markup: kb });
+    return;
+  } catch (e) { console.error('welcome photo:', e.message); }
   await ctx.reply(text, { reply_markup: kb });
 }
 
